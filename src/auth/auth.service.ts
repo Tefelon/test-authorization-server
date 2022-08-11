@@ -14,6 +14,15 @@ interface IAuthEntity {
     refresh_token?: string,
     jwt?: string
 }
+interface IJWTBody {
+    id: number,
+    role: string,
+    exp: number
+}
+export interface ITokens {
+    jwt: string,
+    rt: string
+}
 
 @Injectable()
 export class AuthService {
@@ -22,48 +31,51 @@ export class AuthService {
         private readonly authRepository: Repository<AuthEntity>
     ) {}
 
-    async authenticationUser( user: AuthUsersDTO ): Promise<string> {
+    async authenticationUser( user: AuthUsersDTO ): Promise<ITokens> {
         console.log('user  ', user['login']);
 
-        let findUser: AuthEntity | null = await this.authRepository.findOneBy({
+        const findUser: AuthEntity = await this.authRepository.findOneByOrFail({
             login: user['login']
         })
         console.log('findUser  ', findUser);
 
-        if (findUser) {
-            if (findUser.password === user.password) {
-                return await this.createNewJWT( findUser );
-            } else {
-                return ""
+        if (findUser.password === user.password) {
+            const jwt = await this.createNewJWT( findUser );
+            const rt = await this.createNewRT();
+            await this.authRepository.update( findUser.id, {
+                refresh_token: rt
+            })
+            return {
+                jwt,
+                rt
             }
-        } else {
-            return ""
         }
+        throw new Error('Invalid password');
     }
 
 
-    async createUser( newUser: CreateUsersDto) {
+    async createUser( newUser: CreateUsersDto): Promise<ITokens | string> {
         console.log('create ', newUser.login);
 
-        let checkUser = await this.authRepository.findOneBy({ login: newUser.login });
+        const checkUser: AuthEntity | null = await this.authRepository.findOneBy({ login: newUser.login });
         console.log('checkUser', checkUser);
 
         if (!checkUser) {
-            let createdUser: AuthEntity = await this.authRepository.save( newUser );
+            let createdUser = await this.authRepository.save( newUser );
 
             console.log('createdUser  ', createdUser);
 
             createdUser.key = this.createNewKey(20);
             const jwt: string = this.createNewJWT(createdUser);
-            createdUser.refresh_token = this.createNewRT(jwt);
-
+            createdUser.refresh_token = this.createNewRT();
             await this.authRepository.save(createdUser);
+
             return {
                 rt: createdUser.refresh_token,
                 jwt
             }
         }
-        return "User with this login already exists"
+        return 'Login must be unique'
     }
 
 
@@ -93,20 +105,19 @@ export class AuthService {
             exp: Math.round(this.getExpirationDate(900) )
         })
         dataKey = Buffer.from( dataKey ).toString('base64');
+        const allKeys: string = headerKey + '.' + dataKey;
+        const hash: string = Crypto.createHmac('sha256', user.key).update(allKeys).digest('hex');
 
-        const hash: string = Crypto.createHmac('sha256', user.key).update(headerKey).update(dataKey).digest('hex');
-
-        return headerKey + "." + dataKey + "." + hash;
+        return allKeys + '.' + hash;
     }
 
 
-    private createNewRT(jwt: string): string {
+    private createNewRT(): string {
         const expDate: string = Buffer.from( this.getExpirationDate(2592000).toString() ).toString('base64');
-        const anyString: string = this.createNewKey(10);
-        const jwtEnd: string = jwt.slice(-6);
+        const anyString: string = this.createNewKey(15);
 
-        console.log('expDate  ', expDate, 'anyString  ', anyString, 'jwtEnd  ', jwtEnd);
-        return expDate + anyString + jwtEnd;
+        console.log('expDate  ', expDate, 'anyString  ', anyString);
+        return expDate + anyString;
     }
 
 
@@ -115,14 +126,65 @@ export class AuthService {
     }
 
 
-    async checkCorrectRT(jwt: string, rt: string) {
-        let split_rt: string = rt.slice(0, 8);  //check expiration date
-        let expiration: number = Number( Buffer.from(split_rt[0], 'base64').toString() );
-
+    async updateTokens( rt: string ): Promise<ITokens> {
+        const split_rt: string = rt.slice(0, 16);  //check expiration date
+        const expiration: number = Number( Buffer.from(split_rt, 'base64').toString() );
+console.log('expiration  ', expiration, 'split_rt', split_rt);
         if (expiration < this.getExpirationDate()) {
-            return false
+            return { jwt: '', rt: ''}
         }
+        const user = await this.authRepository.findOneBy({ refresh_token: rt });
+console.log('user   ', user);
+        if (user) {
+            const newJWT = await this.createNewJWT( user );
+            const newRT = await this.createNewRT();
+            await this.authRepository.update(user.id, {
+                refresh_token: newRT
+            })
+console.log('newJWT  ', newJWT, 'newRT   ', newRT);
+            return {
+                jwt: newJWT,
+                rt: newRT
+            }
+        } else {
+            return { jwt: '', rt: ''}
+        }
+    }
 
 
+    async checkJWT(jwt: string): Promise<boolean> {
+        const splitJWT: string[] = jwt.split('.');
+        const bodyJWT: IJWTBody = this.JsonParse( Buffer.from(splitJWT[1], 'base64').toString('utf-8'), '');
+        const user = await this.authRepository.findOneByOrFail({id: bodyJWT.id});
+
+        console.log('user  ', user, 'bodyJWT  ', bodyJWT, 'splitJWT  ', splitJWT);
+
+        if (user) {
+            const allKeys: string = splitJWT[0] + '.' + splitJWT[1];
+            const hash: string = Crypto.createHmac('sha256', user.key).update(allKeys).digest('hex');
+
+            console.log('hash  ', hash);
+
+            if (hash === splitJWT[2]) {
+                console.log('true')
+                return true
+            }
+        }
+        return false
+    }
+
+
+    private JsonParse (json: string, replacement: any): any {
+        let outJsonParse: string;
+
+        try {
+            outJsonParse = JSON.parse(json);
+            if (outJsonParse === undefined || outJsonParse === null) {
+                outJsonParse = replacement;
+            }
+        } catch (e) {
+            outJsonParse = replacement;
+        }
+        return outJsonParse;
     }
 }

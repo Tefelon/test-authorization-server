@@ -14,9 +14,9 @@ export class AuthEntity {
     @Column({ length: 5 })
     role: string
 
-    @Column({ length: 20 })
+    @Column({ length: 20, default: "" })
     key: string
 
-    @Column()
+    @Column({default: ""})
     refresh_token: string
 }
