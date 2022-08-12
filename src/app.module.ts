@@ -6,6 +6,7 @@ import {TypeOrmModule} from "@nestjs/typeorm";
 import {Connection} from "typeorm";
 import {ConfigModule, ConfigService} from "@nestjs/config";
 
+
 @Module({
   imports: [
     ConfigModule.forRoot({isGlobal: true}),

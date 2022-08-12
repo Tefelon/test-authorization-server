@@ -1,19 +1,12 @@
-import {Injectable} from "@nestjs/common";
+import {HttpException, HttpStatus, Injectable, UseFilters} from "@nestjs/common";
 import {Repository} from "typeorm";
 const Crypto = require('crypto');
 import {AuthEntity} from "./auth.entity";
 import {InjectRepository} from "@nestjs/typeorm";
 import {AuthUsersDTO, CreateUsersDto} from "../dto/auth.dto";
+import {AllExceptionFilter} from "../exception-filters/exception.filter";
 
-interface IAuthEntity {
-    id?: number,
-    login: string,
-    password: string,
-    role: string,
-    key?: string,
-    refresh_token?: string,
-    jwt?: string
-}
+
 interface IJWTBody {
     id: number,
     role: string,
@@ -24,6 +17,8 @@ export interface ITokens {
     rt: string
 }
 
+
+@UseFilters(AllExceptionFilter)
 @Injectable()
 export class AuthService {
     constructor(
@@ -32,16 +27,16 @@ export class AuthService {
     ) {}
 
     async authenticationUser( user: AuthUsersDTO ): Promise<ITokens> {
-        console.log('user  ', user['login']);
-
-        const findUser: AuthEntity = await this.authRepository.findOneByOrFail({
+        const findUser: AuthEntity = await this.authRepository.findOneBy({
             login: user['login']
         })
-        console.log('findUser  ', findUser);
+        if (!findUser) {
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+        }
 
         if (findUser.password === user.password) {
             const jwt = await this.createNewJWT( findUser );
-            const rt = await this.createNewRT();
+            const rt = await this.createNewRT( jwt );
             await this.authRepository.update( findUser.id, {
                 refresh_token: rt
             })
@@ -50,24 +45,18 @@ export class AuthService {
                 rt
             }
         }
-        throw new Error('Invalid password');
+        throw new HttpException('Invalid password', HttpStatus.NOT_FOUND);
     }
 
 
     async createUser( newUser: CreateUsersDto): Promise<ITokens | string> {
-        console.log('create ', newUser.login);
-
-        const checkUser: AuthEntity | null = await this.authRepository.findOneBy({ login: newUser.login });
-        console.log('checkUser', checkUser);
+        const checkUser: AuthEntity = await this.authRepository.findOneBy({ login: newUser.login });
 
         if (!checkUser) {
             let createdUser = await this.authRepository.save( newUser );
-
-            console.log('createdUser  ', createdUser);
-
             createdUser.key = this.createNewKey(20);
             const jwt: string = this.createNewJWT(createdUser);
-            createdUser.refresh_token = this.createNewRT();
+            createdUser.refresh_token = this.createNewRT( jwt );
             await this.authRepository.save(createdUser);
 
             return {
@@ -75,14 +64,13 @@ export class AuthService {
                 jwt
             }
         }
-        return 'Login must be unique'
+        throw new HttpException('Login must be unique', HttpStatus.CONFLICT)
     }
 
 
     private createNewKey( lengthKey: number ): string {
         const variantSymbols: string = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
         let userKey: string = "";
-
         lengthKey = Math.round(lengthKey);
 
         for (let i = 0; i < lengthKey; i++ ) {
@@ -102,7 +90,7 @@ export class AuthService {
         let dataKey: string = JSON.stringify({
             id: user.id,
             role: user.role,
-            exp: Math.round(this.getExpirationDate(900) )
+            exp: Math.round(this.getExpirationDate(300) )
         })
         dataKey = Buffer.from( dataKey ).toString('base64');
         const allKeys: string = headerKey + '.' + dataKey;
@@ -112,12 +100,12 @@ export class AuthService {
     }
 
 
-    private createNewRT(): string {
-        const expDate: string = Buffer.from( this.getExpirationDate(2592000).toString() ).toString('base64');
+    private createNewRT( jwt: string ): string {
+        const expDate: string = Buffer.from( this.getExpirationDate(600).toString() ).toString('base64');
         const anyString: string = this.createNewKey(15);
+        const partJWT: string = jwt.slice(-6);
 
-        console.log('expDate  ', expDate, 'anyString  ', anyString);
-        return expDate + anyString;
+        return expDate + anyString + partJWT;
     }
 
 
@@ -126,18 +114,22 @@ export class AuthService {
     }
 
 
-    async updateTokens( rt: string ): Promise<ITokens> {
-        const split_rt: string = rt.slice(0, 16);  //check expiration date
+    async updateTokens( tokens: ITokens ): Promise<ITokens> {
+        const split_rt: string = tokens.rt.slice(0, 16);  //check expiration date
         const expiration: number = Number( Buffer.from(split_rt, 'base64').toString() );
 
         if (expiration < this.getExpirationDate()) {
-            return { jwt: '', rt: ''}
+            throw new HttpException('RT token is expired', HttpStatus.NOT_ACCEPTABLE)
         }
-        const user = await this.authRepository.findOneBy({ refresh_token: rt });
+
+        if (tokens.jwt.slice(-6) !== tokens.rt.slice(-6)) {
+            throw new HttpException('Invalid tokens', HttpStatus.NOT_ACCEPTABLE)
+        }
+        const user = await this.authRepository.findOneBy({ refresh_token: tokens.rt });
 
         if (user) {
             const newJWT = await this.createNewJWT( user );
-            const newRT = await this.createNewRT();
+            const newRT = await this.createNewRT( newJWT );
             await this.authRepository.update(user.id, {
                 refresh_token: newRT
             })
@@ -146,24 +138,23 @@ export class AuthService {
                 jwt: newJWT,
                 rt: newRT
             }
-        } else {
-            return { jwt: '', rt: ''}
         }
+        throw new HttpException('Not an actual refresh-token', HttpStatus.NOT_ACCEPTABLE)
     }
 
 
     async checkJWT(jwt: string): Promise<boolean> {
         const splitJWT: string[] = jwt.split('.');
         const bodyJWT: IJWTBody = this.JsonParse( Buffer.from(splitJWT[1], 'base64').toString('utf-8'), '');
-        const user = await this.authRepository.findOneByOrFail({id: bodyJWT.id});
 
-        console.log('user  ', user, 'bodyJWT  ', bodyJWT, 'splitJWT  ', splitJWT);
+        if (bodyJWT.exp <= this.getExpirationDate()) {
+            return false
+        }
+        const user = await this.authRepository.findOneBy({id: bodyJWT.id});
 
         if (user) {
             const allKeys: string = splitJWT[0] + '.' + splitJWT[1];
             const hash: string = Crypto.createHmac('sha256', user.key).update(allKeys).digest('hex');
-
-            console.log('hash  ', hash);
 
             if (hash === splitJWT[2]) {
                 console.log('true')
