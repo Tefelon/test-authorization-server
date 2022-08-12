@@ -129,19 +129,19 @@ export class AuthService {
     async updateTokens( rt: string ): Promise<ITokens> {
         const split_rt: string = rt.slice(0, 16);  //check expiration date
         const expiration: number = Number( Buffer.from(split_rt, 'base64').toString() );
-console.log('expiration  ', expiration, 'split_rt', split_rt);
+
         if (expiration < this.getExpirationDate()) {
             return { jwt: '', rt: ''}
         }
         const user = await this.authRepository.findOneBy({ refresh_token: rt });
-console.log('user   ', user);
+
         if (user) {
             const newJWT = await this.createNewJWT( user );
             const newRT = await this.createNewRT();
             await this.authRepository.update(user.id, {
                 refresh_token: newRT
             })
-console.log('newJWT  ', newJWT, 'newRT   ', newRT);
+
             return {
                 jwt: newJWT,
                 rt: newRT
