@@ -8,9 +8,10 @@ import {
     Request
 } from '@nestjs/common';
 import {Response as Res, Request as Req} from 'express';
-import {AuthUsersDTO, CreateUsersDto} from "../dto/auth.dto";
-import {AuthService, ITokens} from "./auth.service";
+import {AuthUsersDTO} from "../dto/auth.dto";
+import {AuthService} from "./auth.service";
 import {UpdateTokenDto} from "../dto/update-rt.dto";
+import {ITokens} from "../interfaces/tokens.interface";
 
 
 @Controller('auth')
@@ -24,38 +25,22 @@ export class AuthController {
     async authentication(@Body() user: AuthUsersDTO, @Response() res: Res) {
         const newTokens = await this.authService.authenticationUser( user );
 
-        return res.header('Authorization', `Bearer ${ newTokens.jwt }`).status(200).send({
-            rt: newTokens.rt
+        return res.header('Authorization', `Bearer ${ newTokens.JWT }`).status(200).send({
+            RT: newTokens.RT
         })
     }
 
 
-    @UsePipes(new ValidationPipe())
-    @Post('create-user')
-    async createUser(@Body() newUser: CreateUsersDto, @Response() res: Res) {
-        let resultCreate = await this.authService.createUser( newUser );
-
-        if (typeof resultCreate === 'string') {
-            return res.status(400).send( {
-                message: resultCreate
-            } );
-        } else {
-            return res.header('Authorization', 'Bearer ' + resultCreate.jwt).status(201).send({
-                rt: resultCreate.rt
-            })
-        }
-    }
-
 
     @UsePipes(new ValidationPipe())
     @Post('refresh')
-    async updateTokens(@Body() rt: UpdateTokenDto, @Request() req: Req, @Response() res: Res) {
-        let jwt: string = req.header('Authorization');
+    async updateTokens(@Body() body: UpdateTokenDto, @Request() req: Req, @Response() res: Res) {
+        let JWT: string = req.header('Authorization');
 
-        if (jwt) {
-            jwt = jwt.slice(7)
+        if (JWT) {
+            JWT = JWT.slice(7)
         }
-        const newTokens: ITokens = await this.authService.updateTokens({jwt, rt: rt.rt} );
-        return res.header('Authorization', `Bearer ${newTokens.jwt}`).send({ rt: newTokens.rt});
+        const newTokens: ITokens = await this.authService.updateTokens({JWT, RT: body.RT} );
+        return res.header('Authorization', `Bearer ${newTokens.JWT}`).send({ RT: newTokens.RT});
     }
 }
