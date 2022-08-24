@@ -5,11 +5,19 @@ import { AuthModule } from './auth/auth.module';
 import {TypeOrmModule} from "@nestjs/typeorm";
 import {Connection} from "typeorm";
 import {ConfigModule, ConfigService} from "@nestjs/config";
+import {UserModule} from "./user/user.module";
+import TokenConfig from './configs/token.config';
+import {TokenService} from "./services/token.service";
+import {UserEntity} from "./user/user.entity";
 
 
 @Module({
   imports: [
-    ConfigModule.forRoot({isGlobal: true}),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: '.env.sample',
+      load: [TokenConfig]
+    }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -25,7 +33,7 @@ import {ConfigModule, ConfigService} from "@nestjs/config";
         logging: true
       })
     }),
-    AuthModule],
+    AuthModule, UserModule],
   controllers: [AppController],
   providers: [AppService],
 })

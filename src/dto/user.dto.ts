@@ -1,7 +1,8 @@
-import {IsNotEmpty, IsString, Matches, MaxLength} from "class-validator";
+import {IsEnum, IsNotEmpty, IsString, Matches, MaxLength} from "class-validator";
 
+import { RoleUser } from '../interfaces/users.interface'
 
-export class AuthUsersDTO {
+export class CreateUsersDto {
     @IsNotEmpty({ message: 'Login is empty'})
     @IsString({ message: 'Login is not string'})
     @MaxLength(20, { message: 'Login is too long'})
@@ -17,4 +18,8 @@ export class AuthUsersDTO {
         message: 'Incorrect password format'
     })
     password: string;
+
+    @IsNotEmpty({ message: 'Role is empty'})
+    @IsEnum(RoleUser,{ message: 'Role not "admin" or "user"'})
+    role: RoleUser
 }

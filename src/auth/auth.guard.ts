@@ -14,14 +14,14 @@ export class AuthGuard implements CanActivate {
     }
 
     async validateReq( req ): Promise<boolean> {
-        let jwt: string = req.header('Authorization');
+        let JWT: string = req.header('Authorization');
 
-        if (jwt) {
-            jwt = jwt.slice(7);
-            return await this.authService.checkJWT( jwt );
+        if (JWT) {
+            JWT = JWT.slice(7);
+            console.log(JWT);
+            return await this.authService.checkJWT( JWT );
         } else {
             throw new HttpException('JWT token absent', HttpStatus.BAD_REQUEST)
         }
-
     }
 }

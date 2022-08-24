@@ -1,21 +1,19 @@
-import {Column, Entity, PrimaryGeneratedColumn, Unique} from "typeorm";
+import {Column, Entity, PrimaryGeneratedColumn} from "typeorm";
+import {RoleUser} from "../interfaces/users.interface";
 
 @Entity()
-export class AuthEntity {
+export class UserEntity {
     @PrimaryGeneratedColumn()
     id: number
 
     @Column({ length: 20, unique: true })
     login: string
 
-    @Column({ length: 20 })
+    @Column({ length: 100 })
     password: string
 
     @Column({ length: 5 })
-    role: string
-
-    @Column({ length: 20, default: "" })
-    key: string
+    role: RoleUser
 
     @Column({default: ""})
     refresh_token: string
